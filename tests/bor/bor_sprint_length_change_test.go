@@ -16,7 +16,6 @@ import (
 	"gotest.tools/assert"
 
 	"github.com/ethereum/go-ethereum/accounts/keystore"
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/fdlimit"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -36,7 +35,7 @@ var (
 	// Only this account is a validator for the 0th span
 	keySprintLength, _ = crypto.HexToECDSA(privKeySprintLength)
 
-	// This account is one the validators for 1st span (0-indexed)
+	// This account is one of the validators for 1st span (0-indexed)
 	keySprintLength2, _ = crypto.HexToECDSA(privKeySprintLength2)
 
 	keysSprintLength = []*ecdsa.PrivateKey{keySprintLength, keySprintLength2}
@@ -49,9 +48,9 @@ const (
 
 // Sprint length change tests
 func TestValidatorsBlockProduction(t *testing.T) {
-	t.Parallel()
+	// t.Parallel()
 
-	log.Root().SetHandler(log.LvlFilterHandler(3, log.StreamHandler(os.Stderr, log.TerminalFormat(true))))
+	log.SetDefault(log.NewLogger(log.NewTerminalHandlerWithLevel(os.Stderr, log.LevelInfo, true)))
 
 	_, err := fdlimit.Raise(2048)
 
@@ -98,7 +97,7 @@ func TestValidatorsBlockProduction(t *testing.T) {
 	time.Sleep(3 * time.Second)
 
 	for _, node := range nodes {
-		if err := node.StartMining(1); err != nil {
+		if err := node.StartMining(); err != nil {
 			panic(err)
 		}
 	}
@@ -201,7 +200,7 @@ func TestValidatorsBlockProduction(t *testing.T) {
 }
 
 func TestSprintLengths(t *testing.T) {
-	t.Parallel()
+	// t.Parallel()
 
 	testBorConfig := params.TestChainConfig.Bor
 	testBorConfig.Sprint = map[string]uint64{
@@ -214,7 +213,7 @@ func TestSprintLengths(t *testing.T) {
 }
 
 func TestProducerDelay(t *testing.T) {
-	t.Parallel()
+	// t.Parallel()
 
 	testBorConfig := params.TestChainConfig.Bor
 	testBorConfig.ProducerDelay = map[string]uint64{
@@ -376,9 +375,9 @@ func SprintLengthReorgIndividual2Nodes(t *testing.T, index int, tt map[string]in
 
 func TestSprintLengthReorg2Nodes(t *testing.T) {
 	t.Skip()
-	t.Parallel()
+	// t.Parallel()
 
-	log.Root().SetHandler(log.LvlFilterHandler(3, log.StreamHandler(os.Stderr, log.TerminalFormat(true))))
+	log.SetDefault(log.NewLogger(log.NewTerminalHandlerWithLevel(os.Stderr, log.LevelInfo, true)))
 
 	_, err := fdlimit.Raise(2048)
 
@@ -424,7 +423,7 @@ func TestSprintLengthReorg2Nodes(t *testing.T) {
 
 func TestSprintLengthReorg(t *testing.T) {
 	t.Skip()
-	t.Parallel()
+	// t.Parallel()
 
 	reorgsLengthTests := getTestSprintLengthReorgCases()
 	f, err := os.Create("sprintReorg.csv")
@@ -494,7 +493,7 @@ func SprintLengthReorgIndividual2NodesHelper(t *testing.T, index int, tt map[str
 func SetupValidatorsAndTest(t *testing.T, tt map[string]uint64) (uint64, uint64) {
 	t.Helper()
 
-	log.Root().SetHandler(log.LvlFilterHandler(3, log.StreamHandler(os.Stderr, log.TerminalFormat(true))))
+	log.SetDefault(log.NewLogger(log.NewTerminalHandlerWithLevel(os.Stderr, log.LevelInfo, true)))
 
 	_, err := fdlimit.Raise(2048)
 
@@ -549,7 +548,7 @@ func SetupValidatorsAndTest(t *testing.T, tt map[string]uint64) (uint64, uint64)
 	time.Sleep(3 * time.Second)
 
 	for _, node := range nodes {
-		if err := node.StartMining(1); err != nil {
+		if err := node.StartMining(); err != nil {
 			panic(err)
 		}
 	}
@@ -630,7 +629,7 @@ func SetupValidatorsAndTest(t *testing.T, tt map[string]uint64) (uint64, uint64)
 func SetupValidatorsAndTest2Nodes(t *testing.T, tt map[string]interface{}) (uint64, uint64) {
 	t.Helper()
 
-	log.Root().SetHandler(log.LvlFilterHandler(3, log.StreamHandler(os.Stderr, log.TerminalFormat(true))))
+	log.SetDefault(log.NewLogger(log.NewTerminalHandlerWithLevel(os.Stderr, log.LevelInfo, true)))
 
 	_, err := fdlimit.Raise(2048)
 
@@ -685,7 +684,7 @@ func SetupValidatorsAndTest2Nodes(t *testing.T, tt map[string]interface{}) (uint
 	time.Sleep(3 * time.Second)
 
 	for _, node := range nodes {
-		if err := node.StartMining(1); err != nil {
+		if err := node.StartMining(); err != nil {
 			panic(err)
 		}
 	}
@@ -778,7 +777,6 @@ func InitGenesisSprintLength(t *testing.T, faucets []*ecdsa.PrivateKey, fileLoca
 	}
 
 	genesis.Config.ChainID = big.NewInt(15001)
-	genesis.Config.EIP150Hash = common.Hash{}
 	genesis.Config.Bor.Sprint["0"] = sprintSize
 
 	return genesis
@@ -811,9 +809,7 @@ func InitMinerSprintLength(genesis *core.Genesis, privKey *ecdsa.PrivateKey, wit
 		SyncMode:        downloader.FullSync,
 		DatabaseCache:   256,
 		DatabaseHandles: 256,
-		TxPool:          core.DefaultTxPoolConfig,
 		GPO:             ethconfig.Defaults.GPO,
-		Ethash:          ethconfig.Defaults.Ethash,
 		Miner: miner.Config{
 			Etherbase: crypto.PubkeyToAddress(privKey.PublicKey),
 			GasCeil:   genesis.GasLimit * 11 / 10,

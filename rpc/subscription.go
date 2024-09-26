@@ -32,8 +32,17 @@ import (
 )
 
 var (
-	// ErrNotificationsUnsupported is returned when the connection doesn't support notifications
-	ErrNotificationsUnsupported = errors.New("notifications not supported")
+	// ErrNotificationsUnsupported is returned by the client when the connection doesn't
+	// support notifications. You can use this error value to check for subscription
+	// support like this:
+	//
+	//	sub, err := client.EthSubscribe(ctx, channel, "newHeads", true)
+	//	if errors.Is(err, rpc.ErrNotificationsUnsupported) {
+	//		// Server does not support subscriptions, fall back to polling.
+	//	}
+	//
+	ErrNotificationsUnsupported = notificationsUnsupportedError{}
+
 	// ErrSubscriptionNotFound is returned when the notification for the given id is not found
 	ErrSubscriptionNotFound = errors.New("subscription not found")
 )
@@ -51,6 +60,7 @@ func NewID() ID {
 // randomIDGenerator returns a function generates a random IDs.
 func randomIDGenerator() func() ID {
 	var buf = make([]byte, 8)
+
 	var seed int64
 	if _, err := crand.Read(buf); err == nil {
 		seed = int64(binary.BigEndian.Uint64(buf))
@@ -62,11 +72,14 @@ func randomIDGenerator() func() ID {
 		mu  sync.Mutex
 		rng = rand.New(rand.NewSource(seed))
 	)
+
 	return func() ID {
 		mu.Lock()
 		defer mu.Unlock()
+
 		id := make([]byte, 16)
 		rng.Read(id)
+
 		return encodeID(id)
 	}
 }
@@ -74,9 +87,11 @@ func randomIDGenerator() func() ID {
 func encodeID(b []byte) ID {
 	id := hex.EncodeToString(b)
 	id = strings.TrimLeft(id, "0")
+
 	if id == "" {
 		id = "0" // ID's are RPC quantities, no leading zero's and 0 is 0x0.
 	}
+
 	return ID("0x" + id)
 }
 
@@ -96,7 +111,7 @@ type Notifier struct {
 
 	mu           sync.Mutex
 	sub          *Subscription
-	buffer       []json.RawMessage
+	buffer       []any
 	callReturned bool
 	activated    bool
 }
@@ -114,18 +129,15 @@ func (n *Notifier) CreateSubscription() *Subscription {
 	} else if n.callReturned {
 		panic("can't create subscription after subscribe call has returned")
 	}
+
 	n.sub = &Subscription{ID: n.h.idgen(), namespace: n.namespace, err: make(chan error, 1)}
+
 	return n.sub
 }
 
 // Notify sends a notification to the client with the given data as payload.
 // If an error occurs the RPC connection is closed and the error is returned.
-func (n *Notifier) Notify(id ID, data interface{}) error {
-	enc, err := json.Marshal(data)
-	if err != nil {
-		return err
-	}
-
+func (n *Notifier) Notify(id ID, data any) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
@@ -134,10 +146,11 @@ func (n *Notifier) Notify(id ID, data interface{}) error {
 	} else if n.sub.ID != id {
 		panic("Notify with wrong ID")
 	}
+
 	if n.activated {
-		return n.send(n.sub, enc)
+		return n.send(n.sub, data)
 	}
-	n.buffer = append(n.buffer, enc)
+	n.buffer = append(n.buffer, data)
 	return nil
 }
 
@@ -153,6 +166,7 @@ func (n *Notifier) takeSubscription() *Subscription {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.callReturned = true
+
 	return n.sub
 }
 
@@ -168,18 +182,22 @@ func (n *Notifier) activate() error {
 			return err
 		}
 	}
+
 	n.activated = true
+
 	return nil
 }
 
-func (n *Notifier) send(sub *Subscription, data json.RawMessage) error {
-	params, _ := json.Marshal(&subscriptionResult{ID: string(sub.ID), Result: data})
-	ctx := context.Background()
-	return n.h.conn.writeJSON(ctx, &jsonrpcMessage{
+func (n *Notifier) send(sub *Subscription, data any) error {
+	msg := jsonrpcSubscriptionNotification{
 		Version: vsn,
 		Method:  n.namespace + notificationMethodSuffix,
-		Params:  params,
-	})
+		Params: subscriptionResultEnc{
+			ID:     string(sub.ID),
+			Result: data,
+		},
+	}
+	return n.h.conn.writeJSON(context.Background(), &msg, false)
 }
 
 // A Subscription is created by a notifier and tied to that notifier. The client can use
@@ -240,6 +258,7 @@ func newClientSubscription(c *Client, namespace string, channel reflect.Value) *
 		unsubDone:   make(chan struct{}),
 		err:         make(chan error, 1),
 	}
+
 	return sub
 }
 
@@ -325,6 +344,7 @@ func (sub *ClientSubscription) forward() (unsubscribeServer bool, err error) {
 
 	for {
 		var chosen int
+
 		var recv reflect.Value
 		if buffer.Len() == 0 {
 			// Idle, omit send case.
@@ -340,10 +360,12 @@ func (sub *ClientSubscription) forward() (unsubscribeServer bool, err error) {
 			if !recv.IsNil() {
 				err = recv.Interface().(error)
 			}
+
 			if err == errUnsubscribed {
 				// Exiting because Unsubscribe was called, unsubscribe on server.
 				return true, nil
 			}
+
 			return false, err
 
 		case 1: // <-sub.in
@@ -351,13 +373,16 @@ func (sub *ClientSubscription) forward() (unsubscribeServer bool, err error) {
 			if err != nil {
 				return true, err
 			}
+
 			if buffer.Len() == maxClientSubscriptionBuffer {
 				return true, ErrSubscriptionQueueOverflow
 			}
+
 			buffer.PushBack(val)
 
 		case 2: // sub.channel<-
 			cases[2].Send = reflect.Value{} // Don't hold onto the value.
+
 			buffer.Remove(buffer.Front())
 		}
 	}
@@ -366,6 +391,7 @@ func (sub *ClientSubscription) forward() (unsubscribeServer bool, err error) {
 func (sub *ClientSubscription) unmarshal(result json.RawMessage) (interface{}, error) {
 	val := reflect.New(sub.etype)
 	err := json.Unmarshal(result, val.Interface())
+
 	return val.Elem().Interface(), err
 }
 

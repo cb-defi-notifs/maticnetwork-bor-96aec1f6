@@ -29,6 +29,7 @@ import (
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/params"
 )
 
 var testKey, _ = crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
@@ -53,6 +54,7 @@ var waitDeployedTests = map[string]struct {
 }
 
 func TestWaitDeployed(t *testing.T) {
+	t.Parallel()
 	for name, test := range waitDeployedTests {
 		backend := backends.NewSimulatedBackend(
 			core.GenesisAlloc{
@@ -64,7 +66,7 @@ func TestWaitDeployed(t *testing.T) {
 
 		// Create the transaction
 		head, _ := backend.HeaderByNumber(context.Background(), nil) // Should be child's, good enough
-		gasPrice := new(big.Int).Add(head.BaseFee, big.NewInt(1))
+		gasPrice := new(big.Int).Add(head.BaseFee, big.NewInt(params.GWei))
 
 		tx := types.NewContractCreation(0, big.NewInt(0), test.gas, gasPrice, common.FromHex(test.code))
 		tx, _ = types.SignTx(tx, types.HomesteadSigner{}, testKey)
@@ -76,8 +78,10 @@ func TestWaitDeployed(t *testing.T) {
 			mined   = make(chan struct{})
 			ctx     = context.Background()
 		)
+
 		go func() {
 			address, err = bind.WaitDeployed(ctx, backend, tx)
+
 			close(mined)
 		}()
 
@@ -90,6 +94,7 @@ func TestWaitDeployed(t *testing.T) {
 			if err != test.wantErr {
 				t.Errorf("test %q: error mismatch: want %q, got %q", name, test.wantErr, err)
 			}
+
 			if address != test.wantAddress {
 				t.Errorf("test %q: unexpected contract address %s", name, address.Hex())
 			}
@@ -100,6 +105,7 @@ func TestWaitDeployed(t *testing.T) {
 }
 
 func TestWaitDeployedCornerCases(t *testing.T) {
+	t.Parallel()
 	backend := backends.NewSimulatedBackend(
 		core.GenesisAlloc{
 			crypto.PubkeyToAddress(testKey.PublicKey): {Balance: big.NewInt(10000000000000000)},
@@ -115,13 +121,14 @@ func TestWaitDeployedCornerCases(t *testing.T) {
 	code := "6060604052600a8060106000396000f360606040526008565b00"
 	tx := types.NewTransaction(0, common.HexToAddress("0x01"), big.NewInt(0), 3000000, gasPrice, common.FromHex(code))
 	tx, _ = types.SignTx(tx, types.HomesteadSigner{}, testKey)
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	backend.SendTransaction(ctx, tx)
 	backend.Commit()
-	notContentCreation := errors.New("tx is not contract creation")
-	if _, err := bind.WaitDeployed(ctx, backend, tx); err.Error() != notContentCreation.Error() {
-		t.Errorf("error missmatch: want %q, got %q, ", notContentCreation, err)
+	notContractCreation := errors.New("tx is not contract creation")
+	if _, err := bind.WaitDeployed(ctx, backend, tx); err.Error() != notContractCreation.Error() {
+		t.Errorf("error mismatch: want %q, got %q, ", notContractCreation, err)
 	}
 
 	// Create a transaction that is not mined.
@@ -131,7 +138,7 @@ func TestWaitDeployedCornerCases(t *testing.T) {
 	go func() {
 		contextCanceled := errors.New("context canceled")
 		if _, err := bind.WaitDeployed(ctx, backend, tx); err.Error() != contextCanceled.Error() {
-			t.Errorf("error missmatch: want %q, got %q, ", contextCanceled, err)
+			t.Errorf("error mismatch: want %q, got %q, ", contextCanceled, err)
 		}
 	}()
 

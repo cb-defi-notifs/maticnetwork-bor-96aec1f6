@@ -37,6 +37,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/hashicorp/go-bexpr"
+	"golang.org/x/exp/slog"
 )
 
 // Handler is the global debugging handler.
@@ -56,7 +57,7 @@ type HandlerT struct {
 // Verbosity sets the log verbosity ceiling. The verbosity of individual packages
 // and source files can be raised using Vmodule.
 func (*HandlerT) Verbosity(level int) {
-	glogger.Verbosity(log.Lvl(level))
+	glogger.Verbosity(slog.Level(level))
 }
 
 // Vmodule sets the log verbosity pattern. See package log for details on the
@@ -65,16 +66,11 @@ func (*HandlerT) Vmodule(pattern string) error {
 	return glogger.Vmodule(pattern)
 }
 
-// BacktraceAt sets the log backtrace location. See package log for details on
-// the pattern syntax.
-func (*HandlerT) BacktraceAt(location string) error {
-	return glogger.BacktraceAt(location)
-}
-
 // MemStats returns detailed runtime memory statistics.
 func (*HandlerT) MemStats() *runtime.MemStats {
 	s := new(runtime.MemStats)
 	runtime.ReadMemStats(s)
+
 	return s
 }
 
@@ -82,6 +78,7 @@ func (*HandlerT) MemStats() *runtime.MemStats {
 func (*HandlerT) GcStats() *debug.GCStats {
 	s := new(debug.GCStats)
 	debug.ReadGCStats(s)
+
 	return s
 }
 
@@ -91,8 +88,10 @@ func (h *HandlerT) CpuProfile(file string, nsec uint) error {
 	if err := h.StartCPUProfile(file); err != nil {
 		return err
 	}
+
 	time.Sleep(time.Duration(nsec) * time.Second)
 	h.StopCPUProfile()
+
 	return nil
 }
 
@@ -100,20 +99,25 @@ func (h *HandlerT) CpuProfile(file string, nsec uint) error {
 func (h *HandlerT) StartCPUProfile(file string) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+
 	if h.cpuW != nil {
 		return errors.New("CPU profiling already in progress")
 	}
+
 	f, err := os.Create(expandHome(file))
 	if err != nil {
 		return err
 	}
+
 	if err := pprof.StartCPUProfile(f); err != nil {
 		f.Close()
 		return err
 	}
+
 	h.cpuW = f
 	h.cpuFile = file
 	log.Info("CPU profiling started", "dump", h.cpuFile)
+
 	return nil
 }
 
@@ -122,13 +126,16 @@ func (h *HandlerT) StopCPUProfile() error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	pprof.StopCPUProfile()
+
 	if h.cpuW == nil {
 		return errors.New("CPU profiling not in progress")
 	}
+
 	log.Info("Done writing CPU profile", "dump", h.cpuFile)
 	h.cpuW.Close()
 	h.cpuW = nil
 	h.cpuFile = ""
+
 	return nil
 }
 
@@ -138,8 +145,10 @@ func (h *HandlerT) GoTrace(file string, nsec uint) error {
 	if err := h.StartGoTrace(file); err != nil {
 		return err
 	}
+
 	time.Sleep(time.Duration(nsec) * time.Second)
 	h.StopGoTrace()
+
 	return nil
 }
 
@@ -149,7 +158,9 @@ func (h *HandlerT) GoTrace(file string, nsec uint) error {
 func (*HandlerT) BlockProfile(file string, nsec uint) error {
 	runtime.SetBlockProfileRate(1)
 	time.Sleep(time.Duration(nsec) * time.Second)
+
 	defer runtime.SetBlockProfileRate(0)
+
 	return writeProfile("block", file)
 }
 
@@ -170,7 +181,9 @@ func (*HandlerT) WriteBlockProfile(file string) error {
 func (*HandlerT) MutexProfile(file string, nsec uint) error {
 	runtime.SetMutexProfileFraction(1)
 	time.Sleep(time.Duration(nsec) * time.Second)
+
 	defer runtime.SetMutexProfileFraction(0)
+
 	return writeProfile("mutex", file)
 }
 
@@ -209,8 +222,8 @@ func (*HandlerT) Stacks(filter *string) string {
 		// E.g. (eth || snap) && !p2p -> (eth in Value || snap in Value) && p2p not in Value
 		expanded = regexp.MustCompile(`[:/\.A-Za-z0-9_-]+`).ReplaceAllString(expanded, "`$0` in Value")
 		expanded = regexp.MustCompile("!(`[:/\\.A-Za-z0-9_-]+`)").ReplaceAllString(expanded, "$1 not")
-		expanded = strings.Replace(expanded, "||", "or", -1)
-		expanded = strings.Replace(expanded, "&&", "and", -1)
+		expanded = strings.ReplaceAll(expanded, "||", "or")
+		expanded = strings.ReplaceAll(expanded, "&&", "and")
 		log.Info("Expanded filter expression", "filter", *filter, "expanded", expanded)
 
 		expr, err := bexpr.CreateEvaluator(expanded)
@@ -229,6 +242,7 @@ func (*HandlerT) Stacks(filter *string) string {
 			}
 		}
 	}
+
 	return buf.String()
 }
 
@@ -246,11 +260,14 @@ func (*HandlerT) SetGCPercent(v int) int {
 func writeProfile(name, file string) error {
 	p := pprof.Lookup(name)
 	log.Info("Writing profile records", "count", p.Count(), "type", name, "dump", file)
+
 	f, err := os.Create(expandHome(file))
 	if err != nil {
 		return err
 	}
+
 	defer f.Close()
+
 	return p.WriteTo(f, 0)
 }
 
@@ -264,9 +281,11 @@ func expandHome(p string) string {
 				home = usr.HomeDir
 			}
 		}
+
 		if home != "" {
 			p = home + p[1:]
 		}
 	}
+
 	return filepath.Clean(p)
 }

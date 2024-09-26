@@ -49,6 +49,35 @@ func (mr *MockDatabaseMockRecorder) Ancient(arg0, arg1 interface{}) *gomock.Call
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Ancient", reflect.TypeOf((*MockDatabase)(nil).Ancient), arg0, arg1)
 }
 
+// AncientOffSet mocks base method.
+func (m *MockDatabase) AncientOffSet() uint64 {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AncientOffSet")
+	ret0, _ := ret[0].(uint64)
+	return ret0
+}
+
+// AncientOffSet indicates an expected call of AncientOffSet.
+func (mr *MockDatabaseMockRecorder) AncientOffSet() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AncientOffSet", reflect.TypeOf((*MockDatabase)(nil).AncientOffSet))
+}
+
+// AncientDatadir mocks base method.
+func (m *MockDatabase) AncientDatadir() (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AncientDatadir")
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// AncientDatadir indicates an expected call of AncientDatadir.
+func (mr *MockDatabaseMockRecorder) AncientDatadir() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AncientDatadir", reflect.TypeOf((*MockDatabase)(nil).AncientDatadir))
+}
+
 // AncientRange mocks base method.
 func (m *MockDatabase) AncientRange(arg0 string, arg1, arg2, arg3 uint64) ([][]byte, error) {
 	m.ctrl.T.Helper()
@@ -181,6 +210,21 @@ func (mr *MockDatabaseMockRecorder) HasAncient(arg0, arg1 interface{}) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HasAncient", reflect.TypeOf((*MockDatabase)(nil).HasAncient), arg0, arg1)
 }
 
+// ItemAmountInAncient mocks base method.
+func (m *MockDatabase) ItemAmountInAncient() (uint64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ItemAmountInAncient")
+	ret0, _ := ret[0].(uint64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ItemAmountInAncient indicates an expected call of ItemAmountInAncient.
+func (mr *MockDatabaseMockRecorder) ItemAmountInAncient() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ItemAmountInAncient", reflect.TypeOf((*MockDatabase)(nil).ItemAmountInAncient))
+}
+
 // MigrateTable mocks base method.
 func (m *MockDatabase) MigrateTable(arg0 string, arg1 func([]byte) ([]byte, error)) error {
 	m.ctrl.T.Helper()
@@ -282,7 +326,7 @@ func (mr *MockDatabaseMockRecorder) Put(arg0, arg1 interface{}) *gomock.Call {
 }
 
 // ReadAncients mocks base method.
-func (m *MockDatabase) ReadAncients(arg0 func(ethdb.AncientReader) error) error {
+func (m *MockDatabase) ReadAncients(arg0 func(ethdb.AncientReaderOp) error) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ReadAncients", arg0)
 	ret0, _ := ret[0].(error)
@@ -340,11 +384,12 @@ func (mr *MockDatabaseMockRecorder) Tail() *gomock.Call {
 }
 
 // TruncateHead mocks base method.
-func (m *MockDatabase) TruncateHead(arg0 uint64) error {
+func (m *MockDatabase) TruncateHead(arg0 uint64) (uint64, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "TruncateHead", arg0)
-	ret0, _ := ret[0].(error)
-	return ret0
+	ret0, _ := ret[0].(uint64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // TruncateHead indicates an expected call of TruncateHead.
@@ -354,11 +399,12 @@ func (mr *MockDatabaseMockRecorder) TruncateHead(arg0 interface{}) *gomock.Call 
 }
 
 // TruncateTail mocks base method.
-func (m *MockDatabase) TruncateTail(arg0 uint64) error {
+func (m *MockDatabase) TruncateTail(arg0 uint64) (uint64, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "TruncateTail", arg0)
-	ret0, _ := ret[0].(error)
-	return ret0
+	ret0, _ := ret[0].(uint64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // TruncateTail indicates an expected call of TruncateTail.

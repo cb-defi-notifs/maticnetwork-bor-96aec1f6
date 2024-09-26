@@ -31,19 +31,24 @@ func verify(t *testing.T, jsondata, calldata string, exp []interface{}) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	cd := common.Hex2Bytes(calldata)
 	sigdata, argdata := cd[:4], cd[4:]
+
 	method, err := abispec.MethodById(sigdata)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	data, err := method.Inputs.UnpackValues(argdata)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if len(data) != len(exp) {
 		t.Fatalf("Mismatched length, expected %d, got %d", len(exp), len(data))
 	}
+
 	for i, elem := range data {
 		if !reflect.DeepEqual(elem, exp[i]) {
 			t.Fatalf("Unpack error, arg %d, got %v, want %v", i, elem, exp[i])
@@ -52,11 +57,13 @@ func verify(t *testing.T, jsondata, calldata string, exp []interface{}) {
 }
 
 func TestNewUnpacker(t *testing.T) {
+	t.Parallel()
 	type unpackTest struct {
 		jsondata string
 		calldata string
 		exp      []interface{}
 	}
+
 	testcases := []unpackTest{
 		{ // https://solidity.readthedocs.io/en/develop/abi-spec.html#use-of-dynamic-types
 			`[{"type":"function","name":"f", "inputs":[{"type":"uint256"},{"type":"uint32[]"},{"type":"bytes10"},{"type":"bytes"}]}]`,
@@ -97,6 +104,7 @@ func TestNewUnpacker(t *testing.T) {
 }
 
 func TestCalldataDecoding(t *testing.T) {
+	t.Parallel()
 	// send(uint256)                              : a52c101e
 	// compareAndApprove(address,uint256,uint256) : 751e1079
 	// issue(address[],uint256)                   : 42958b54
@@ -159,12 +167,14 @@ func TestCalldataDecoding(t *testing.T) {
 }
 
 func TestMaliciousABIStrings(t *testing.T) {
+	t.Parallel()
 	tests := []string{
 		"func(uint256,uint256,[]uint256)",
 		"func(uint256,uint256,uint256,)",
 		"func(,uint256,uint256,uint256)",
 	}
 	data := common.Hex2Bytes("4401a6e40000000000000000000000000000000000000000000000000000000000000012")
+
 	for i, tt := range tests {
 		_, err := verifySelector(tt, data)
 		if err == nil {

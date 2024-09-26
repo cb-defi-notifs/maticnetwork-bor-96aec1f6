@@ -34,11 +34,12 @@ type freezerBatch struct {
 	tables map[string]*freezerTableBatch
 }
 
-func newFreezerBatch(f *freezer) *freezerBatch {
+func newFreezerBatch(f *Freezer) *freezerBatch {
 	batch := &freezerBatch{tables: make(map[string]*freezerTableBatch, len(f.tables))}
 	for kind, table := range f.tables {
-		batch.tables[kind] = table.newBatch()
+		batch.tables[kind] = table.newBatch(f.offset.Load())
 	}
+
 	return batch
 }
 
@@ -68,6 +69,7 @@ func (batch *freezerBatch) commit() (item uint64, writeSize int64, err error) {
 		if item < math.MaxUint64 && tb.curItem != item {
 			return 0, 0, fmt.Errorf("table %s is at item %d, want %d", name, tb.curItem, item)
 		}
+
 		item = tb.curItem
 	}
 
@@ -76,8 +78,10 @@ func (batch *freezerBatch) commit() (item uint64, writeSize int64, err error) {
 		if err := tb.commit(); err != nil {
 			return 0, 0, err
 		}
+
 		writeSize += tb.totalBytes
 	}
+
 	return item, writeSize, nil
 }
 
@@ -91,15 +95,18 @@ type freezerTableBatch struct {
 	indexBuffer []byte
 	curItem     uint64 // expected index of next append
 	totalBytes  int64  // counts written bytes since reset
+	offset      uint64
 }
 
 // newBatch creates a new batch for the freezer table.
-func (t *freezerTable) newBatch() *freezerTableBatch {
-	batch := &freezerTableBatch{t: t}
+func (t *freezerTable) newBatch(offset uint64) *freezerTableBatch {
+	batch := &freezerTableBatch{t: t, offset: offset}
 	if !t.noCompression {
 		batch.sb = new(snappyBuffer)
 	}
+
 	batch.reset()
+
 	return batch
 }
 
@@ -107,7 +114,8 @@ func (t *freezerTable) newBatch() *freezerTableBatch {
 func (batch *freezerTableBatch) reset() {
 	batch.dataBuffer = batch.dataBuffer[:0]
 	batch.indexBuffer = batch.indexBuffer[:0]
-	batch.curItem = atomic.LoadUint64(&batch.t.items)
+	curItem := batch.t.items.Load() + batch.offset
+	batch.curItem = atomic.LoadUint64(&curItem)
 	batch.totalBytes = 0
 }
 
@@ -121,13 +129,16 @@ func (batch *freezerTableBatch) Append(item uint64, data interface{}) error {
 
 	// Encode the item.
 	batch.encBuffer.Reset()
+
 	if err := rlp.Encode(&batch.encBuffer, data); err != nil {
 		return err
 	}
+
 	encItem := batch.encBuffer.data
 	if batch.sb != nil {
 		encItem = batch.sb.compress(encItem)
 	}
+
 	return batch.appendItem(encItem)
 }
 
@@ -143,6 +154,7 @@ func (batch *freezerTableBatch) AppendRaw(item uint64, blob []byte) error {
 	if batch.sb != nil {
 		encItem = batch.sb.compress(blob)
 	}
+
 	return batch.appendItem(encItem)
 }
 
@@ -150,14 +162,17 @@ func (batch *freezerTableBatch) appendItem(data []byte) error {
 	// Check if item fits into current data file.
 	itemSize := int64(len(data))
 	itemOffset := batch.t.headBytes + int64(len(batch.dataBuffer))
+
 	if itemOffset+itemSize > int64(batch.t.maxFileSize) {
 		// It doesn't fit, go to next file first.
 		if err := batch.commit(); err != nil {
 			return err
 		}
+
 		if err := batch.t.advanceHead(); err != nil {
 			return err
 		}
+
 		itemOffset = 0
 	}
 
@@ -178,22 +193,31 @@ func (batch *freezerTableBatch) maybeCommit() error {
 	if len(batch.dataBuffer) > freezerBatchBufferLimit {
 		return batch.commit()
 	}
+
 	return nil
 }
 
 // commit writes the batched items to the backing freezerTable.
 func (batch *freezerTableBatch) commit() error {
-	// Write data.
+	// Write data. The head file is fsync'd after write to ensure the
+	// data is truly transferred to disk.
 	_, err := batch.t.head.Write(batch.dataBuffer)
 	if err != nil {
+		return err
+	}
+	if err := batch.t.head.Sync(); err != nil {
 		return err
 	}
 	dataSize := int64(len(batch.dataBuffer))
 	batch.dataBuffer = batch.dataBuffer[:0]
 
-	// Write indices.
+	// Write indices. The index file is fsync'd after write to ensure the
+	// data indexes are truly transferred to disk.
 	_, err = batch.t.index.Write(batch.indexBuffer)
 	if err != nil {
+		return err
+	}
+	if err := batch.t.index.Sync(); err != nil {
 		return err
 	}
 	indexSize := int64(len(batch.indexBuffer))
@@ -201,11 +225,13 @@ func (batch *freezerTableBatch) commit() error {
 
 	// Update headBytes of table.
 	batch.t.headBytes += dataSize
-	atomic.StoreUint64(&batch.t.items, batch.curItem)
+	items := batch.curItem - batch.offset
+	batch.t.items.Store(items)
 
 	// Update metrics.
 	batch.t.sizeGauge.Inc(dataSize + indexSize)
 	batch.t.writeMeter.Mark(dataSize + indexSize)
+
 	return nil
 }
 
@@ -226,10 +252,12 @@ func (s *snappyBuffer) compress(data []byte) []byte {
 		if cap(s.dst) < n {
 			s.dst = make([]byte, n)
 		}
+
 		s.dst = s.dst[:n]
 	}
 
 	s.dst = snappy.Encode(s.dst, data)
+
 	return s.dst
 }
 

@@ -29,8 +29,6 @@ import (
 // NotFound is returned by API methods if the requested item does not exist.
 var NotFound = errors.New("not found")
 
-// TODO: move subscription to package event
-
 // Subscription represents an event subscription where events are
 // delivered on a data channel.
 type Subscription interface {
@@ -201,6 +199,15 @@ type GasPricer interface {
 	SuggestGasPrice(ctx context.Context) (*big.Int, error)
 }
 
+// FeeHistory provides recent fee market data that consumers can use to determine
+// a reasonable maxPriorityFeePerGas value.
+type FeeHistory struct {
+	OldestBlock  *big.Int     // block corresponding to first response value
+	Reward       [][]*big.Int // list every txs priority fee per block
+	BaseFee      []*big.Int   // list of each block's base fee
+	GasUsedRatio []float64    // ratio of gas used out of the total available limit
+}
+
 // A PendingStateReader provides access to the pending state, which is the result of all
 // known executable transactions which have not yet been included in the blockchain. It is
 // commonly used to display the result of ’unconfirmed’ actions (e.g. wallet value
@@ -241,9 +248,19 @@ type StateSyncFilter struct {
 
 // interface for whitelist service
 type ChainValidator interface {
-	IsValidPeer(remoteHeader *types.Header, fetchHeadersByNumber func(number uint64, amount int, skip int, reverse bool) ([]*types.Header, []common.Hash, error)) (bool, error)
+	IsValidPeer(fetchHeadersByNumber func(number uint64, amount int, skip int, reverse bool) ([]*types.Header, []common.Hash, error)) (bool, error)
 	IsValidChain(currentHeader *types.Header, chain []*types.Header) (bool, error)
+	GetWhitelistedCheckpoint() (bool, uint64, common.Hash)
+	GetWhitelistedMilestone() (bool, uint64, common.Hash)
 	ProcessCheckpoint(endBlockNum uint64, endBlockHash common.Hash)
-	GetCheckpointWhitelist() map[uint64]common.Hash
-	PurgeCheckpointWhitelist()
+	ProcessMilestone(endBlockNum uint64, endBlockHash common.Hash)
+	ProcessFutureMilestone(num uint64, hash common.Hash)
+	PurgeWhitelistedCheckpoint()
+	PurgeWhitelistedMilestone()
+
+	LockMutex(endBlockNum uint64) bool
+	UnlockMutex(doLock bool, milestoneId string, endBlockNum uint64, endBlockHash common.Hash)
+	UnlockSprint(endBlockNum uint64)
+	RemoveMilestoneID(milestoneId string)
+	GetMilestoneIDsList() []string
 }

@@ -3,7 +3,6 @@ package server
 import (
 	"crypto/ecdsa"
 	"fmt"
-	"io/ioutil"
 	"math"
 	"math/big"
 	"os"
@@ -67,6 +66,9 @@ type Config struct {
 	// Ancient is the directory to store the state in
 	Ancient string `hcl:"ancient,optional" toml:"ancient,optional"`
 
+	// DBEngine is used to select leveldb or pebble as database
+	DBEngine string `hcl:"db.engine,optional" toml:"db.engine,optional"`
+
 	// KeyStoreDir is the directory to store keystores
 	KeyStoreDir string `hcl:"keystore,optional" toml:"keystore,optional"`
 
@@ -81,6 +83,9 @@ type Config struct {
 
 	// GcMode selects the garbage collection mode for the trie
 	GcMode string `hcl:"gcmode,optional" toml:"gcmode,optional"`
+
+	// state.scheme selects the Scheme to use for storing ethereum state ('hash' or 'path')
+	StateScheme string `hcl:"state.scheme,optional" toml:"state.scheme,optional"`
 
 	// Snapshot enables the snapshot database mode
 	Snapshot bool `hcl:"snapshot,optional" toml:"snapshot,optional"`
@@ -118,6 +123,8 @@ type Config struct {
 	// Cache has the cache related settings
 	Cache *CacheConfig `hcl:"cache,block" toml:"cache,block"`
 
+	ExtraDB *ExtraDBConfig `hcl:"leveldb,block" toml:"leveldb,block"`
+
 	// Account has the validator account related settings
 	Accounts *AccountsConfig `hcl:"accounts,block" toml:"accounts,block"`
 
@@ -126,6 +133,9 @@ type Config struct {
 
 	// Developer has the developer mode related settings
 	Developer *DeveloperConfig `hcl:"developer,block" toml:"developer,block"`
+
+	// ParallelEVM has the parallel evm related settings
+	ParallelEVM *ParallelEVMConfig `hcl:"parallelevm,block" toml:"parallelevm,block"`
 
 	// Develop Fake Author mode to produce blocks without authorisation
 	DevFakeAuthor bool `hcl:"devfakeauthor,optional" toml:"devfakeauthor,optional"`
@@ -146,6 +156,9 @@ type LoggingConfig struct {
 
 	// Prepends log messages with call-site location (file and line number)
 	Debug bool `hcl:"debug,optional" toml:"debug,optional"`
+
+	// EnableBlockTracking allows logging of information collected while tracking block lifecycle
+	EnableBlockTracking bool `hcl:"enable-block-tracking,optional" toml:"enable-block-tracking,optional"`
 
 	// TODO - implement this
 	// // Write execution trace to the given file
@@ -204,9 +217,17 @@ type P2PConfig struct {
 
 	// Discovery has the p2p discovery related settings
 	Discovery *P2PDiscovery `hcl:"discovery,block" toml:"discovery,block"`
+
+	// TxArrivalWait sets the maximum duration the transaction fetcher will wait for
+	// an announced transaction to arrive before explicitly requesting it
+	TxArrivalWait    time.Duration `hcl:"-,optional" toml:"-"`
+	TxArrivalWaitRaw string        `hcl:"txarrivalwait,optional" toml:"txarrivalwait,optional"`
 }
 
 type P2PDiscovery struct {
+	// DiscoveryV4 specifies whether V4 discovery should be started.
+	DiscoveryV4 bool `hcl:"v4disc,optional" toml:"v4disc,optional"`
+
 	// V5Enabled is used to enable disc v5 discovery mode
 	V5Enabled bool `hcl:"v5disc,optional" toml:"v5disc,optional"`
 
@@ -306,6 +327,8 @@ type SealerConfig struct {
 	// The time interval for miner to re-create mining work.
 	Recommit    time.Duration `hcl:"-,optional" toml:"-"`
 	RecommitRaw string        `hcl:"recommit,optional" toml:"recommit,optional"`
+
+	CommitInterruptFlag bool `hcl:"commitinterrupt,optional" toml:"commitinterrupt,optional"`
 }
 
 type JsonRPCConfig struct {
@@ -340,6 +363,9 @@ type JsonRPCConfig struct {
 	HttpTimeout *HttpTimeouts `hcl:"timeouts,block" toml:"timeouts,block"`
 
 	AllowUnprotectedTxs bool `hcl:"allow-unprotected-txs,optional" toml:"allow-unprotected-txs,optional"`
+
+	// EnablePersonal enables the deprecated personal namespace.
+	EnablePersonal bool `hcl:"enabledeprecatedpersonal,optional" toml:"enabledeprecatedpersonal,optional"`
 }
 
 type AUTHConfig struct {
@@ -509,13 +535,6 @@ type CacheConfig struct {
 	// PercTrie is percentage of cache used for the trie
 	PercTrie uint64 `hcl:"trie,optional" toml:"trie,optional"`
 
-	// Journal is the disk journal directory for trie cache to survive node restarts
-	Journal string `hcl:"journal,optional" toml:"journal,optional"`
-
-	// Rejournal is the time interval to regenerate the journal for clean cache
-	Rejournal    time.Duration `hcl:"-,optional" toml:"-"`
-	RejournalRaw string        `hcl:"rejournal,optional" toml:"rejournal,optional"`
-
 	// NoPrefetch is used to disable prefetch of tries
 	NoPrefetch bool `hcl:"noprefetch,optional" toml:"noprefetch,optional"`
 
@@ -527,12 +546,23 @@ type CacheConfig struct {
 
 	// Number of block states to keep in memory (default = 128)
 	TriesInMemory uint64 `hcl:"triesinmemory,optional" toml:"triesinmemory,optional"`
+
+	// This is the number of blocks for which logs will be cached in the filter system.
+	FilterLogCacheSize int `hcl:"blocklogs,optional" toml:"blocklogs,optional"`
+
 	// Time after which the Merkle Patricia Trie is stored to disc from memory
 	TrieTimeout    time.Duration `hcl:"-,optional" toml:"-"`
 	TrieTimeoutRaw string        `hcl:"timeout,optional" toml:"timeout,optional"`
 
 	// Raise the open file descriptor resource limit (default = system fd limit)
 	FDLimit int `hcl:"fdlimit,optional" toml:"fdlimit,optional"`
+}
+
+type ExtraDBConfig struct {
+	LevelDbCompactionTableSize           uint64  `hcl:"compactiontablesize,optional" toml:"compactiontablesize,optional"`
+	LevelDbCompactionTableSizeMultiplier float64 `hcl:"compactiontablesizemultiplier,optional" toml:"compactiontablesizemultiplier,optional"`
+	LevelDbCompactionTotalSize           uint64  `hcl:"compactiontotalsize,optional" toml:"compactiontotalsize,optional"`
+	LevelDbCompactionTotalSizeMultiplier float64 `hcl:"compactiontotalsizemultiplier,optional" toml:"compactiontotalsizemultiplier,optional"`
 }
 
 type AccountsConfig struct {
@@ -563,6 +593,12 @@ type DeveloperConfig struct {
 	GasLimit uint64 `hcl:"gaslimit,optional" toml:"gaslimit,optional"`
 }
 
+type ParallelEVMConfig struct {
+	Enable bool `hcl:"enable,optional" toml:"enable,optional"`
+
+	SpeculativeProcesses int `hcl:"procs,optional" toml:"procs,optional"`
+}
+
 func DefaultConfig() *Config {
 	return &Config{
 		Chain:                   "mainnet",
@@ -573,23 +609,28 @@ func DefaultConfig() *Config {
 		EnablePreimageRecording: false,
 		DataDir:                 DefaultDataDir(),
 		Ancient:                 "",
+		DBEngine:                "leveldb",
+		KeyStoreDir:             "",
 		Logging: &LoggingConfig{
-			Vmodule:   "",
-			Json:      false,
-			Backtrace: "",
-			Debug:     false,
+			Vmodule:             "",
+			Json:                false,
+			Backtrace:           "",
+			Debug:               false,
+			EnableBlockTracking: false,
 		},
 		RPCBatchLimit:      100,
 		RPCReturnDataLimit: 100000,
 		P2P: &P2PConfig{
-			MaxPeers:     50,
-			MaxPendPeers: 50,
-			Bind:         "0.0.0.0",
-			Port:         30303,
-			NoDiscover:   false,
-			NAT:          "any",
-			NetRestrict:  "",
+			MaxPeers:      50,
+			MaxPendPeers:  50,
+			Bind:          "0.0.0.0",
+			Port:          30303,
+			NoDiscover:    false,
+			NAT:           "any",
+			NetRestrict:   "",
+			TxArrivalWait: 500 * time.Millisecond,
 			Discovery: &P2PDiscovery{
+				DiscoveryV4:  true,
 				V5Enabled:    false,
 				Bootnodes:    []string{},
 				BootnodesV4:  []string{},
@@ -604,16 +645,17 @@ func DefaultConfig() *Config {
 			Without:     false,
 			GRPCAddress: "",
 		},
-		SyncMode: "full",
-		GcMode:   "full",
-		Snapshot: true,
-		BorLogs:  false,
+		SyncMode:    "full",
+		GcMode:      "full",
+		StateScheme: "hash",
+		Snapshot:    true,
+		BorLogs:     false,
 		TxPool: &TxPoolConfig{
 			Locals:       []string{},
 			NoLocals:     false,
 			Journal:      "transactions.rlp",
 			Rejournal:    1 * time.Hour,
-			PriceLimit:   1, // geth's default
+			PriceLimit:   params.BorDefaultTxPoolPriceLimit, // bor's default
 			PriceBump:    10,
 			AccountSlots: 16,
 			GlobalSlots:  32768,
@@ -622,12 +664,13 @@ func DefaultConfig() *Config {
 			LifeTime:     3 * time.Hour,
 		},
 		Sealer: &SealerConfig{
-			Enabled:   false,
-			Etherbase: "",
-			GasCeil:   30_000_000,                  // geth's default
-			GasPrice:  big.NewInt(1 * params.GWei), // geth's default
-			ExtraData: "",
-			Recommit:  125 * time.Second,
+			Enabled:             false,
+			Etherbase:           "",
+			GasCeil:             30_000_000,                                 // geth's default
+			GasPrice:            big.NewInt(params.BorDefaultMinerGasPrice), // bor's default
+			ExtraData:           "",
+			Recommit:            125 * time.Second,
+			CommitInterruptFlag: true,
 		},
 		Gpo: &GpoConfig{
 			Blocks:           20,
@@ -635,7 +678,7 @@ func DefaultConfig() *Config {
 			MaxHeaderHistory: 1024,
 			MaxBlockHistory:  1024,
 			MaxPrice:         gasprice.DefaultMaxPrice,
-			IgnorePrice:      gasprice.DefaultIgnorePrice,
+			IgnorePrice:      gasprice.DefaultIgnorePrice, // bor's default
 		},
 		JsonRPC: &JsonRPCConfig{
 			IPCDisable:          false,
@@ -644,6 +687,7 @@ func DefaultConfig() *Config {
 			TxFeeCap:            ethconfig.Defaults.RPCTxFeeCap,
 			RPCEVMTimeout:       ethconfig.Defaults.RPCEVMTimeout,
 			AllowUnprotectedTxs: false,
+			EnablePersonal:      false,
 			Http: &APIConfig{
 				Enabled:                     false,
 				Port:                        8545,
@@ -687,7 +731,7 @@ func DefaultConfig() *Config {
 			Enabled:               false,
 			Expensive:             false,
 			PrometheusAddr:        "127.0.0.1:7071",
-			OpenCollectorEndpoint: "127.0.0.1:4317",
+			OpenCollectorEndpoint: "",
 			InfluxDB: &InfluxDBConfig{
 				V1Enabled:    false,
 				Endpoint:     "",
@@ -702,19 +746,26 @@ func DefaultConfig() *Config {
 			},
 		},
 		Cache: &CacheConfig{
-			Cache:         1024, // geth's default (suitable for mumbai)
-			PercDatabase:  50,
-			PercTrie:      15,
-			PercGc:        25,
-			PercSnapshot:  10,
-			Journal:       "triecache",
-			Rejournal:     60 * time.Minute,
-			NoPrefetch:    false,
-			Preimages:     false,
-			TxLookupLimit: 2350000,
-			TriesInMemory: 128,
-			TrieTimeout:   60 * time.Minute,
-			FDLimit:       0,
+			Cache:              1024, // geth's default (suitable for mumbai)
+			PercDatabase:       50,
+			PercTrie:           15,
+			PercGc:             25,
+			PercSnapshot:       10,
+			NoPrefetch:         false,
+			Preimages:          false,
+			TxLookupLimit:      2350000,
+			TriesInMemory:      128,
+			FilterLogCacheSize: ethconfig.Defaults.FilterLogCacheSize,
+			TrieTimeout:        60 * time.Minute,
+			FDLimit:            0,
+		},
+		ExtraDB: &ExtraDBConfig{
+			// These are LevelDB defaults, specifying here for clarity in code and in logging.
+			// See: https://github.com/syndtr/goleveldb/blob/126854af5e6d8295ef8e8bee3040dd8380ae72e8/leveldb/opt/options.go
+			LevelDbCompactionTableSize:           2, // MiB
+			LevelDbCompactionTableSizeMultiplier: 1,
+			LevelDbCompactionTotalSize:           10, // MiB
+			LevelDbCompactionTotalSizeMultiplier: 10,
 		},
 		Accounts: &AccountsConfig{
 			Unlock:              []string{},
@@ -739,6 +790,10 @@ func DefaultConfig() *Config {
 			MemProfileRate:   512 * 1024,
 			BlockProfileRate: 0,
 			// CPUProfile:       "",
+		},
+		ParallelEVM: &ParallelEVMConfig{
+			Enable:               true,
+			SpeculativeProcesses: 8,
 		},
 	}
 }
@@ -793,8 +848,8 @@ func (c *Config) fillTimeDurations() error {
 		{"jsonrpc.http.ep-requesttimeout", &c.JsonRPC.Http.ExecutionPoolRequestTimeout, &c.JsonRPC.Http.ExecutionPoolRequestTimeoutRaw},
 		{"txpool.lifetime", &c.TxPool.LifeTime, &c.TxPool.LifeTimeRaw},
 		{"txpool.rejournal", &c.TxPool.Rejournal, &c.TxPool.RejournalRaw},
-		{"cache.rejournal", &c.Cache.Rejournal, &c.Cache.RejournalRaw},
 		{"cache.timeout", &c.Cache.TrieTimeout, &c.Cache.TrieTimeoutRaw},
+		{"p2p.txarrivalwait", &c.P2P.TxArrivalWait, &c.P2P.TxArrivalWaitRaw},
 	}
 
 	for _, x := range tds {
@@ -888,8 +943,8 @@ func (c *Config) buildEth(stack *node.Node, accountManager *accounts.Manager) (*
 	{
 		n.GPO.Blocks = int(c.Gpo.Blocks)
 		n.GPO.Percentile = int(c.Gpo.Percentile)
-		n.GPO.MaxHeaderHistory = c.Gpo.MaxHeaderHistory
-		n.GPO.MaxBlockHistory = c.Gpo.MaxBlockHistory
+		n.GPO.MaxHeaderHistory = uint64(c.Gpo.MaxHeaderHistory)
+		n.GPO.MaxBlockHistory = uint64(c.Gpo.MaxBlockHistory)
 		n.GPO.MaxPrice = c.Gpo.MaxPrice
 		n.GPO.IgnorePrice = c.Gpo.IgnorePrice
 	}
@@ -916,6 +971,7 @@ func (c *Config) buildEth(stack *node.Node, accountManager *accounts.Manager) (*
 		n.Miner.GasPrice = c.Sealer.GasPrice
 		n.Miner.GasCeil = c.Sealer.GasCeil
 		n.Miner.ExtraData = []byte(c.Sealer.ExtraData)
+		n.Miner.CommitInterruptFlag = c.Sealer.CommitInterruptFlag
 
 		if etherbase := c.Sealer.Etherbase; etherbase != "" {
 			if !common.IsHexAddress(etherbase) {
@@ -1012,7 +1068,8 @@ func (c *Config) buildEth(stack *node.Node, accountManager *accounts.Manager) (*
 
 	// RequiredBlocks
 	{
-		n.PeerRequiredBlocks = map[uint64]common.Hash{}
+		n.RequiredBlocks = map[uint64]common.Hash{}
+
 		for k, v := range c.RequiredBlocks {
 			number, err := strconv.ParseUint(k, 0, 64)
 			if err != nil {
@@ -1024,7 +1081,7 @@ func (c *Config) buildEth(stack *node.Node, accountManager *accounts.Manager) (*
 				return nil, fmt.Errorf("invalid required block hash %s: %v", v, err)
 			}
 
-			n.PeerRequiredBlocks[number] = hash
+			n.RequiredBlocks[number] = hash
 		}
 	}
 
@@ -1043,7 +1100,7 @@ func (c *Config) buildEth(stack *node.Node, accountManager *accounts.Manager) (*
 				mem.Total = 2 * 1024 * 1024 * 1024
 			}
 
-			allowance := uint64(mem.Total / 1024 / 1024 / 3)
+			allowance := mem.Total / 1024 / 1024 / 3
 			if cache > allowance {
 				log.Warn("Sanitizing cache to Go's GC limits", "provided", cache, "updated", allowance)
 				cache = allowance
@@ -1055,8 +1112,6 @@ func (c *Config) buildEth(stack *node.Node, accountManager *accounts.Manager) (*
 		log.Debug("Sanitizing Go's GC trigger", "percent", int(gogc))
 		godebug.SetGCPercent(int(gogc))
 
-		n.TrieCleanCacheJournal = c.Cache.Journal
-		n.TrieCleanCacheRejournal = c.Cache.Rejournal
 		n.DatabaseCache = calcPerc(c.Cache.PercDatabase)
 		n.SnapshotCache = calcPerc(c.Cache.PercSnapshot)
 		n.TrieCleanCache = calcPerc(c.Cache.PercTrie)
@@ -1066,6 +1121,15 @@ func (c *Config) buildEth(stack *node.Node, accountManager *accounts.Manager) (*
 		n.TxLookupLimit = c.Cache.TxLookupLimit
 		n.TrieTimeout = c.Cache.TrieTimeout
 		n.TriesInMemory = c.Cache.TriesInMemory
+		n.FilterLogCacheSize = c.Cache.FilterLogCacheSize
+	}
+
+	// LevelDB
+	{
+		n.LevelDbCompactionTableSize = c.ExtraDB.LevelDbCompactionTableSize
+		n.LevelDbCompactionTableSizeMultiplier = c.ExtraDB.LevelDbCompactionTableSizeMultiplier
+		n.LevelDbCompactionTotalSize = c.ExtraDB.LevelDbCompactionTotalSize
+		n.LevelDbCompactionTotalSizeMultiplier = c.ExtraDB.LevelDbCompactionTotalSizeMultiplier
 	}
 
 	n.RPCGasCap = c.JsonRPC.GasCap
@@ -1101,10 +1165,19 @@ func (c *Config) buildEth(stack *node.Node, accountManager *accounts.Manager) (*
 		n.NoPruning = true
 		if !n.Preimages {
 			n.Preimages = true
+
 			log.Info("Enabling recording of key preimages since archive mode is used")
 		}
 	default:
 		return nil, fmt.Errorf("gcmode '%s' not found", c.GcMode)
+	}
+
+	// statescheme "hash" or "path"
+	switch c.StateScheme {
+	case "path":
+		n.StateScheme = "path"
+	default:
+		n.StateScheme = "hash"
 	}
 
 	// snapshot disable check
@@ -1121,11 +1194,15 @@ func (c *Config) buildEth(stack *node.Node, accountManager *accounts.Manager) (*
 	n.BorLogs = c.BorLogs
 	n.DatabaseHandles = dbHandles
 
+	n.ParallelEVM.Enable = c.ParallelEVM.Enable
+	n.ParallelEVM.SpeculativeProcesses = c.ParallelEVM.SpeculativeProcesses
 	n.RPCReturnDataLimit = c.RPCReturnDataLimit
 
 	if c.Ancient != "" {
 		n.DatabaseFreezer = c.Ancient
 	}
+
+	n.EnableBlockTracking = c.Logging.EnableBlockTracking
 
 	return &n, nil
 }
@@ -1246,17 +1323,21 @@ func (c *Config) buildNode() (*node.Config, error) {
 	cfg := &node.Config{
 		Name:                  clientIdentifier,
 		DataDir:               c.DataDir,
+		DBEngine:              c.DBEngine,
 		KeyStoreDir:           c.KeyStoreDir,
 		UseLightweightKDF:     c.Accounts.UseLightweightKDF,
 		InsecureUnlockAllowed: c.Accounts.AllowInsecureUnlock,
 		Version:               params.VersionWithCommit(gitCommit, gitDate),
 		IPCPath:               ipcPath,
 		AllowUnprotectedTxs:   c.JsonRPC.AllowUnprotectedTxs,
+		EnablePersonal:        c.JsonRPC.EnablePersonal,
 		P2P: p2p.Config{
 			MaxPeers:        int(c.P2P.MaxPeers),
 			MaxPendingPeers: int(c.P2P.MaxPendPeers),
 			ListenAddr:      c.P2P.Bind + ":" + strconv.Itoa(int(c.P2P.Port)),
+			DiscoveryV4:     c.P2P.Discovery.DiscoveryV4,
 			DiscoveryV5:     c.P2P.Discovery.V5Enabled,
+			TxArrivalWait:   c.P2P.TxArrivalWait,
 		},
 		HTTPModules:         c.JsonRPC.Http.API,
 		HTTPCors:            c.JsonRPC.Http.Cors,
@@ -1335,10 +1416,10 @@ func (c *Config) buildNode() (*node.Config, error) {
 	// only check for non-developer modes
 	if !c.Developer.Enabled {
 		// Discovery
-		// if no bootnodes are defined, use the ones from the chain file.
+		// Append the bootnodes defined with those hardcoded in the config file
 		bootnodes := c.P2P.Discovery.Bootnodes
-		if len(bootnodes) == 0 {
-			bootnodes = c.chain.Bootnodes
+		if c.chain != nil {
+			bootnodes = append(bootnodes, c.chain.Bootnodes...)
 		}
 
 		if cfg.P2P.BootstrapNodes, err = parseBootnodes(bootnodes); err != nil {
@@ -1414,12 +1495,14 @@ func MakeDatabaseHandles(max int) (int, error) {
 
 func parseBootnodes(urls []string) ([]*enode.Node, error) {
 	dst := []*enode.Node{}
+
 	for _, url := range urls {
 		if url != "" {
 			node, err := enode.Parse(enode.ValidSchemes, url)
 			if err != nil {
 				return nil, fmt.Errorf("invalid bootstrap url '%s': %v", url, err)
 			}
+
 			dst = append(dst, node)
 		}
 	}
@@ -1461,7 +1544,7 @@ func Hostname() string {
 }
 
 func MakePasswordListFromFile(path string) ([]string, error) {
-	text, err := ioutil.ReadFile(path)
+	text, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read password file: %v", err)
 	}

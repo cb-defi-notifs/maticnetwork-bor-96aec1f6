@@ -25,8 +25,8 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/docker/docker/pkg/reexec"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/internal/reexec"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/node"
 	"github.com/ethereum/go-ethereum/p2p"
@@ -34,15 +34,15 @@ import (
 	"github.com/ethereum/go-ethereum/p2p/enr"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/gorilla/websocket"
+	"golang.org/x/exp/slog"
 )
 
 // Node represents a node in a simulation network which is created by a
 // NodeAdapter, for example:
 //
-// * SimNode    - An in-memory node
-// * ExecNode   - A child process node
-// * DockerNode - A Docker container node
-//
+//   - SimNode, an in-memory node in the same process
+//   - ExecNode, a child process node
+//   - DockerNode, a node running in a Docker container
 type Node interface {
 	// Addr returns the node's address (e.g. an Enode URL)
 	Addr() []byte
@@ -130,7 +130,7 @@ type NodeConfig struct {
 	// LogVerbosity is the log verbosity of the p2p node at runtime.
 	//
 	// The default verbosity is INFO.
-	LogVerbosity log.Lvl
+	LogVerbosity slog.Level
 }
 
 // nodeConfigJSON is used to encode and decode NodeConfig as JSON by encoding
@@ -163,6 +163,7 @@ func (n *NodeConfig) MarshalJSON() ([]byte, error) {
 	if n.PrivateKey != nil {
 		confJSON.PrivateKey = hex.EncodeToString(crypto.FromECDSA(n.PrivateKey))
 	}
+
 	return json.Marshal(confJSON)
 }
 
@@ -185,10 +186,12 @@ func (n *NodeConfig) UnmarshalJSON(data []byte) error {
 		if err != nil {
 			return err
 		}
+
 		privKey, err := crypto.ToECDSA(key)
 		if err != nil {
 			return err
 		}
+
 		n.PrivateKey = privKey
 	}
 
@@ -198,7 +201,7 @@ func (n *NodeConfig) UnmarshalJSON(data []byte) error {
 	n.Port = confJSON.Port
 	n.EnableMsgEvents = confJSON.EnableMsgEvents
 	n.LogFile = confJSON.LogFile
-	n.LogVerbosity = log.Lvl(confJSON.LogVerbosity)
+	n.LogVerbosity = slog.Level(confJSON.LogVerbosity)
 
 	return nil
 }
@@ -222,6 +225,7 @@ func RandomNodeConfig() *NodeConfig {
 	}
 
 	enodId := enode.PubkeyToIDV4(&prvkey.PublicKey)
+
 	return &NodeConfig{
 		PrivateKey:      prvkey,
 		ID:              enodId,
@@ -237,15 +241,19 @@ func assignTCPPort() (uint16, error) {
 	if err != nil {
 		return 0, err
 	}
+
 	l.Close()
+
 	_, port, err := net.SplitHostPort(l.Addr().String())
 	if err != nil {
 		return 0, err
 	}
+
 	p, err := strconv.ParseUint(port, 10, 16)
 	if err != nil {
 		return 0, err
 	}
+
 	return uint16(p), nil
 }
 
@@ -287,6 +295,7 @@ func RegisterLifecycles(lifecycles LifecycleConstructors) {
 		if _, exists := lifecycleConstructorFuncs[name]; exists {
 			panic(fmt.Sprintf("node service already exists: %q", name))
 		}
+
 		lifecycleConstructorFuncs[name] = f
 	}
 
@@ -303,8 +312,10 @@ func RegisterLifecycles(lifecycles LifecycleConstructors) {
 func (n *NodeConfig) initEnode(ip net.IP, tcpport int, udpport int) error {
 	enrIp := enr.IP(ip)
 	n.Record.Set(&enrIp)
+
 	enrTcpPort := enr.TCP(tcpport)
 	n.Record.Set(&enrTcpPort)
+
 	enrUdpPort := enr.UDP(udpport)
 	n.Record.Set(&enrUdpPort)
 
@@ -312,12 +323,15 @@ func (n *NodeConfig) initEnode(ip net.IP, tcpport int, udpport int) error {
 	if err != nil {
 		return fmt.Errorf("unable to generate ENR: %v", err)
 	}
+
 	nod, err := enode.New(enode.V4ID{}, &n.Record)
 	if err != nil {
 		return fmt.Errorf("unable to create enode: %v", err)
 	}
+
 	log.Trace("simnode new", "record", n.Record)
 	n.node = nod
+
 	return nil
 }
 
